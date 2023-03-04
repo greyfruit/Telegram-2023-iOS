@@ -244,6 +244,7 @@ public final class GradientBackgroundNode: ASDisplayNode {
 
     public let contentView: UIImageView
     private var validPhase: Int?
+    private var validColors: [UIColor]?
     private var invalidated: Bool = false
 
     private var dimmedImageParams: (size: CGSize, colors: [UIColor], positions: [CGPoint])?
@@ -379,6 +380,19 @@ public final class GradientBackgroundNode: ASDisplayNode {
                     let maxFrame = Int(duration * fps)
                     let framesPerAnyStep = maxFrame / stepCount
 
+                    let interpolatedColors: (CGFloat) -> [UIColor]
+                    if let validColors = self.validColors {
+                        interpolatedColors = { t in
+                            zip(self.colors, validColors).map { old, new in
+                                UIColor.interpolate(from: old, to: new, with: t)
+                            }
+                        }
+                    } else {
+                        interpolatedColors = { _ in
+                            self.colors
+                        }
+                    }
+                    
                     for frameIndex in 0 ..< maxFrame {
                         let t = curve.solve(at: CGFloat(frameIndex) / CGFloat(maxFrame - 1))
                         let globalStep = Int(t * CGFloat(maxFrame))
@@ -397,13 +411,18 @@ public final class GradientBackgroundNode: ASDisplayNode {
                         for i in 0 ..< steps[0].count {
                             morphedPositions.append(interpolatePoints(steps[stepIndex][i], steps[stepIndex + 1][i], at: stepT))
                         }
-
-                        images.append(generateGradient(size: imageSize, colors: self.colors, positions: morphedPositions))
+                        
+                        let interpolatedColors = interpolatedColors(t)
+                        images.append(generateGradient(size: imageSize, colors: interpolatedColors, positions: morphedPositions))
                         if needDimmedImages {
-                            dimmedImages.append(generateGradient(size: imageSize, colors: self.colors, positions: morphedPositions, adjustSaturation: self.saturation).0)
+                            dimmedImages.append(generateGradient(size: imageSize, colors: interpolatedColors, positions: morphedPositions, adjustSaturation: self.saturation).0)
                         }
                     }
 
+                    if let validColors = self.validColors {
+                        self.colors = validColors
+                    }
+                    
                     self.dimmedImageParams = (imageSize, self.colors, gatherPositions(shiftArray(array: GradientBackgroundNode.basePositions, offset: self.phase % 8)))
 
                     self.contentView.image = images[images.count - 1].0
@@ -430,6 +449,7 @@ public final class GradientBackgroundNode: ASDisplayNode {
                     }
                     animation.completion = { [weak self] value in
                         if let strongSelf = self, value {
+//                            strongSelf.contentView.layer.speed = 1.0
                             strongSelf.isAnimating = false
                             if let patternOverlayLayer = strongSelf.patternOverlayLayer {
                                 patternOverlayLayer.isAnimating = false
@@ -462,6 +482,10 @@ public final class GradientBackgroundNode: ASDisplayNode {
                         }
                     }
                 } else {
+                    if let validColors = self.validColors {
+                        self.colors = validColors
+                    }
+                    
                     let (image, imageHash) = generateGradient(size: imageSize, colors: self.colors, positions: positions)
                     self.contentView.image = image
                     self.backgroundImageHash = imageHash
@@ -522,7 +546,7 @@ public final class GradientBackgroundNode: ASDisplayNode {
         }
     }
 
-    public func updateColors(colors: [UIColor]) {
+    public func updateColors(colors: [UIColor], invalidate: Bool = true) {
         var updated = false
         if self.colors.count != colors.count {
             updated = true
@@ -535,10 +559,14 @@ public final class GradientBackgroundNode: ASDisplayNode {
             }
         }
         if updated {
-            self.colors = colors
-            self.invalidated = true
-            if let size = self.validLayout {
-                self.updateLayout(size: size, transition: .immediate, extendAnimation: false, backwards: false, completion: {})
+            self.validColors = colors
+            if invalidate {
+                self.invalidated = true
+                if let size = self.validLayout {
+                    self.updateLayout(size: size, transition: .immediate, extendAnimation: false, backwards: false, completion: {})
+                }
+            } else {
+//                self.contentView.layer.speed = 2.0
             }
         }
     }
@@ -566,5 +594,36 @@ public final class GradientBackgroundNode: ASDisplayNode {
         } else {
             completion()
         }
+    }
+}
+
+public extension UIColor {
+    /// The RGBA components associated with a `UIColor` instance.
+    var components: (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) {
+        let components = self.cgColor.components!
+
+        switch components.count == 2 {
+        case true : return (r: components[0], g: components[0], b: components[0], a: components[1])
+        case false: return (r: components[0], g: components[1], b: components[2], a: components[3])
+        }
+    }
+
+    /**
+     Returns a `UIColor` by interpolating between two other `UIColor`s.
+     - Parameter fromColor: The `UIColor` to interpolate from
+     - Parameter toColor:   The `UIColor` to interpolate to (e.g. when fully interpolated)
+     - Parameter progress:  The interpolation progess; must be a `CGFloat` from 0 to 1
+     - Returns: The interpolated `UIColor` for the given progress point
+     */
+    static func interpolate(from fromColor: UIColor, to toColor: UIColor, with progress: CGFloat) -> UIColor {
+        let fromComponents = fromColor.components
+        let toComponents = toColor.components
+
+        let r = (1 - progress) * fromComponents.r + progress * toComponents.r
+        let g = (1 - progress) * fromComponents.g + progress * toComponents.g
+        let b = (1 - progress) * fromComponents.b + progress * toComponents.b
+        let a = (1 - progress) * fromComponents.a + progress * toComponents.a
+
+        return UIColor(red: r, green: g, blue: b, alpha: a)
     }
 }

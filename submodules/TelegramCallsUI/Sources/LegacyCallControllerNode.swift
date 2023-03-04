@@ -379,7 +379,7 @@ final class LegacyCallControllerNode: ASDisplayNode, CallControllerNodeProtocol 
         
         if let keyPreviewNode = self.keyPreviewNode {
             transition.updateFrame(node: keyPreviewNode, frame: CGRect(origin: CGPoint(), size: layout.size))
-            keyPreviewNode.updateLayout(size: layout.size, transition: .immediate)
+            _ = keyPreviewNode.updateLayout(size: layout.size, transition: .immediate)
         }
         
         transition.updateFrame(node: self.imageNode, frame: CGRect(origin: CGPoint(), size: layout.size))
@@ -443,7 +443,7 @@ final class LegacyCallControllerNode: ASDisplayNode, CallControllerNodeProtocol 
     
     @objc func keyPressed() {
         if self.keyPreviewNode == nil, let keyText = self.keyTextData?.1, let peer = self.peer {
-            let keyPreviewNode = CallControllerKeyPreviewNode(keyText: keyText, infoText: self.presentationData.strings.Call_EmojiDescription(EnginePeer(peer).compactDisplayTitle).string.replacingOccurrences(of: "%%", with: "%"), dismiss: { [weak self] in
+            let keyPreviewNode = CallControllerKeyPreviewNode(keyText: keyText, infoText: self.presentationData.strings.Call_EmojiDescription(EnginePeer(peer).compactDisplayTitle).string.replacingOccurrences(of: "%%", with: "%"), hasVideo: false, dismiss: { [weak self] in
                 if let _ = self?.keyPreviewNode {
                     self?.backPressed()
                 }
@@ -453,7 +453,7 @@ final class LegacyCallControllerNode: ASDisplayNode, CallControllerNodeProtocol 
             self.keyPreviewNode = keyPreviewNode
             
             if let (validLayout, _) = self.validLayout {
-                keyPreviewNode.updateLayout(size: validLayout.size, transition: .immediate)
+                _ = keyPreviewNode.updateLayout(size: validLayout.size, transition: .immediate)
                 
                 self.keyButtonNode.isHidden = true
                 keyPreviewNode.animateIn(from: self.keyButtonNode.frame, fromNode: self.keyButtonNode)

@@ -296,12 +296,12 @@ public func generateSmallHorizontalStretchableFilledCircleImage(diameter: CGFloa
     })?.stretchableImage(withLeftCapWidth: Int(diameter / 2), topCapHeight: Int(diameter / 2))
 }
 
-public func generateTintedImage(image: UIImage?, color: UIColor, backgroundColor: UIColor? = nil) -> UIImage? {
+public func generateTintedImage(image: UIImage?, color: UIColor, backgroundColor: UIColor? = nil, size: CGSize? = nil) -> UIImage? {
     guard let image = image else {
         return nil
     }
     
-    let imageSize = image.size
+    let imageSize = size ?? image.size
 
     UIGraphicsBeginImageContextWithOptions(imageSize, backgroundColor != nil, image.scale)
     if let context = UIGraphicsGetCurrentContext() {

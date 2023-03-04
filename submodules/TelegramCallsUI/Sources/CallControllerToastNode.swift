@@ -64,9 +64,10 @@ final class CallControllerToastContainerNode: ASDisplayNode {
         self.strings = strings
         
         super.init()
+//        self.backgroundColor = .red
     }
     
-    private func updateToastsLayout(strings: PresentationStrings, content: CallControllerToastContent, width: CGFloat, bottomInset: CGFloat, animated: Bool) -> CGFloat {
+    private func updateToastsLayout(strings: PresentationStrings, content: CallControllerToastContent, width: CGFloat, bottomInset: CGFloat, animated: Bool, containerTransition: ContainedViewLayoutTransition) -> CGFloat {
         let transition: ContainedViewLayoutTransition
         if animated {
             transition = .animated(duration: 0.3, curve: .spring)
@@ -142,10 +143,14 @@ final class CallControllerToastContainerNode: ASDisplayNode {
             transitions[toast.key] = (toastTransition, toastHeight, animateIn)
         }
         
+        var removedHeights: [Int: CGFloat] = [:]
         var removedKeys: [ToastDescription.Key] = []
-        for (key, toastNode) in self.toastNodes {
+        for (_, (key, toastNode)) in self.toastNodes.enumerated() {
             if !validKeys.contains(key) {
                 removedKeys.append(key)
+                if let index = self.visibleToastNodes.firstIndex(of: toastNode) {
+                    removedHeights[index] = toastNode.bounds.height + spacing
+                }
                 self.visibleToastNodes.removeAll { $0 === toastNode }
                 if animated {
                     toastNode.animateOut(transition: transition) { [weak toastNode] in
@@ -160,14 +165,25 @@ final class CallControllerToastContainerNode: ASDisplayNode {
             self.toastNodes.removeValue(forKey: key)
         }
         
-        for toastNode in self.visibleToastNodes {
-            if let content = toastNode.currentContent, let (transition, toastHeight, animateIn) = transitions[content.key] {
-                transition.updateFrame(node: toastNode, frame: CGRect(x: 0.0, y: height, width: width, height: toastHeight))
-                height += toastHeight + spacing
-                
+        var totalRemovedHeight = CGFloat(0.0)
+        for (index, toastNode) in self.visibleToastNodes.enumerated() {
+            if let removedHeight = removedHeights[index] {
+                totalRemovedHeight += removedHeight
+            }
+            
+            if let content = toastNode.currentContent, let (_, toastHeight, animateIn) = transitions[content.key] {
                 if animateIn {
-                    toastNode.animateIn()
+                    let frame = CGRect(x: 0.0, y: height, width: width, height: toastHeight)
+                    toastNode.frame = frame
+                    toastNode.animateIn(transition: containerTransition, offset: (index == 0) ? toastHeight : toastHeight + spacing)
+                } else {
+                    if toastNode.isAnimating {
+                    } else {
+                        let frame = CGRect(x: 0.0, y: height, width: width, height: toastHeight)
+                        toastNode.updateFrame(transition: containerTransition, frame: frame, offset: totalRemovedHeight)
+                    }
                 }
+                height += toastHeight + spacing
             }
         }
         if height > 0.0 {
@@ -183,7 +199,7 @@ final class CallControllerToastContainerNode: ASDisplayNode {
         self.content = content
         
         if let content = self.content {
-            return self.updateToastsLayout(strings: strings, content: content, width: constrainedWidth, bottomInset: bottomInset, animated: transition.isAnimated)
+            return self.updateToastsLayout(strings: strings, content: content, width: constrainedWidth, bottomInset: bottomInset, animated: transition.isAnimated, containerTransition: transition)
         } else {
             return 0.0
         }
@@ -225,6 +241,7 @@ private class CallControllerToastItemNode: ASDisplayNode {
         
         self.effectView = UIVisualEffectView()
         self.effectView.effect = UIBlurEffect(style: .light)
+        setBlurEffect(view: self.effectView, hasVideo: latestHasVideoState)
         self.effectView.isUserInteractionEnabled = false
         
         self.iconNode = ASImageNode()
@@ -241,7 +258,7 @@ private class CallControllerToastItemNode: ASDisplayNode {
         
         self.addSubnode(self.clipNode)
         self.clipNode.view.addSubview(self.effectView)
-        self.clipNode.addSubnode(self.iconNode)
+//        self.clipNode.addSubnode(self.iconNode)
         self.clipNode.addSubnode(self.textNode)
     }
     
@@ -263,61 +280,164 @@ private class CallControllerToastItemNode: ASDisplayNode {
             self.currentContent = content
             self.currentWidth = width
             
-            var image: UIImage?
-            switch content.image {
-                case .camera:
-                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallToastCamera"), color: .white)
-                case .microphone:
-                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallToastMicrophone"), color: .white)
-                case .battery:
-                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallToastBattery"), color: .white)
-            }
+//            var image: UIImage?
+//            switch content.image {
+//                case .camera:
+//                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallToastCamera"), color: .white)
+//                case .microphone:
+//                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallToastMicrophone"), color: .white)
+//                case .battery:
+//                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallToastBattery"), color: .white)
+//            }
             
-            if transition.isAnimated, let image = image, let previousContent = self.iconNode.image {
-                self.iconNode.image = image
-                self.iconNode.layer.animate(from: previousContent.cgImage!, to: image.cgImage!, keyPath: "contents", timingFunction: CAMediaTimingFunctionName.easeInEaseOut.rawValue, duration: 0.2)
-            } else {
-                self.iconNode.image = image
-            }
+//            if transition.isAnimated, let image = image, let previousContent = self.iconNode.image {
+//                self.iconNode.image = image
+//                self.iconNode.layer.animate(from: previousContent.cgImage!, to: image.cgImage!, keyPath: "contents", timingFunction: CAMediaTimingFunctionName.easeInEaseOut.rawValue, duration: 0.2)
+//            } else {
+//                self.iconNode.image = image
+//            }
                   
             self.textNode.attributedText = NSAttributedString(string: content.text, font: font, textColor: .white)
             
-            let iconSize = CGSize(width: 44.0, height: 28.0)
-            let iconSpacing: CGFloat = isNarrowScreen ? 0.0 : 1.0
-            let textSize = self.textNode.updateLayout(CGSize(width: width - inset * 2.0 - iconSize.width - iconSpacing, height: 100.0))
+//            let iconSize = CGSize(width: 44.0, height: 28.0)
+//            let iconSpacing: CGFloat = isNarrowScreen ? 0.0 : 1.0
+//            let textSize = self.textNode.updateLayout(CGSize(width: width - inset * 2.0 - iconSize.width - iconSpacing, height: 100.0))
+            let textSize = self.textNode.updateLayout(CGSize(width: width - inset * 2.0, height: 100.0))
             
-            let backgroundSize = CGSize(width: iconSize.width + iconSpacing + textSize.width + 6.0 * 2.0, height: max(28.0, textSize.height + 4.0 * 2.0))
+            let backgroundSize = CGSize(width: textSize.width + 12.0 * 2.0, height: max(28.0, textSize.height + 4.0 * 2.0))
             let backgroundFrame = CGRect(origin: CGPoint(x: floor((width - backgroundSize.width) / 2.0), y: 0.0), size: backgroundSize)
             
             transition.updateFrame(node: self.clipNode, frame: backgroundFrame)
             transition.updateFrame(view: self.effectView, frame: CGRect(origin: CGPoint(), size: backgroundFrame.size))
-            
-            self.iconNode.frame = CGRect(origin: CGPoint(), size: iconSize)
-            self.textNode.frame = CGRect(origin: CGPoint(x: iconSize.width + iconSpacing, y: topInset), size: textSize)
+//            self.iconNode.frame = CGRect(origin: CGPoint(), size: iconSize)
+            self.textNode.frame = CGRect(origin: CGPoint(x: 12.0, y: topInset), size: textSize)
             
             self.currentHeight = backgroundSize.height
         }
         return self.currentHeight ?? 28.0
     }
     
-    func animateIn() {
-        let targetFrame = self.clipNode.frame
-        let initialFrame = CGRect(x: floor((self.frame.width - 44.0) / 2.0), y: 0.0, width: 44.0, height: 28.0)
+    var isAnimating = false
+    func animateIn(transition: ContainedViewLayoutTransition, offset: CGFloat) {
+        let duration: Double
+        switch transition {
+        case let .animated(transitionDuration, _):
+            duration = transitionDuration
+        case .immediate:
+            duration = 0.0
+        }
         
-        self.clipNode.frame = initialFrame
-        
-        self.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.2)
-        self.layer.animateSpring(from: 0.01 as NSNumber, to: 1.0 as NSNumber, keyPath: "transform.scale", duration: 0.3, damping: 105.0, completion: { _ in
-            self.clipNode.frame = targetFrame
+        self.isAnimating = true
+        let originalFrame = self.frame
+        let originalSupernode = self.supernode
+        if let supernode = self.supernode(of: CallControllerNode.self, includingSelf: false) as? CallControllerNode {
+//            self.frame = self.convert(self.bounds, to: supernode)
+            self.frame = self.convert(self.bounds, to: supernode.containerNode)
+            self.frame.origin.y -= offset
+            supernode.containerNode.insertSubnode(self, belowSubnode: supernode.buttonsNode)
+//            supernode.insertSubnode(self, belowSubnode: supernode.buttonsNode)
+//            supernode.addSubnode(self)
             
-            self.clipNode.layer.animateFrame(from: initialFrame, to: targetFrame, duration: 0.35, timingFunction: kCAMediaTimingFunctionSpring)
-        })
+            self.layer.animateAlpha(from: 0.0, to: 1.0, duration: duration * 0.5)
+            self.layer.animateSpring(from: 0.3 as NSNumber, to: 1.0 as NSNumber, keyPath: "transform.scale", duration: duration, damping: 105.0, completion: { _ in
+                self.removeFromSupernode()
+                self.frame = originalFrame
+                self.isAnimating = false
+                originalSupernode?.addSubnode(self)
+            })
+        }
+        
+        
+//        if var transitionView = self.view.snapshotView(afterScreenUpdates: true), let supernode = self.supernode(of: CallControllerNode.self, includingSelf: false) {
+//            transitionView = self.view
+//            transitionView.frame = self.convert(self.bounds, to: supernode)
+//            transitionView.frame.origin.y -= offset
+////            supernode.view.addSubview(transitionView)
+//
+////            self.isHidden = true
+//            transitionView.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.2)
+//            transitionView.layer.animateSpring(from: 0.3 as NSNumber, to: 1.0 as NSNumber, keyPath: "transform.scale", duration: 0.3, damping: 105.0, completion: { _ in
+//                transitionView.removeFromSuperview()
+////                self.isHidden = false
+//            })
+//        }
+        
+//        let targetFrame = self.clipNode.frame
+//        let initialFrame = CGRect(x: floor((self.frame.width - 44.0) / 2.0), y: 0.0, width: 44.0, height: 28.0)
+//        self.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.2)
+//        self.layer.animateSpring(from: 0.01 as NSNumber, to: 1.0 as NSNumber, keyPath: "transform.scale", duration: 0.3, damping: 105.0, completion: { _ in
+//            self.clipNode.frame = targetFrame
+            
+//            self.clipNode.layer.animateFrame(from: initialFrame, to: targetFrame, duration: 0.35, timingFunction: kCAMediaTimingFunctionSpring)
+//        })
+    }
+    
+    func updateFrame(transition: ContainedViewLayoutTransition, frame: CGRect, offset: CGFloat) {
+//        let originalFrame = self.frame
+                
+        if let supernode = self.supernode(of: CallControllerNode.self, includingSelf: false) as? CallControllerNode {
+            var currentFrameInContainer = self.convert(self.bounds, to: supernode.containerNode)
+            var newFrameInContainer = self.supernode!.convert(frame, to: supernode.containerNode)
+            
+            currentFrameInContainer.origin.y += offset
+            newFrameInContainer.origin.y += offset
+            
+            if currentFrameInContainer == newFrameInContainer {
+//                self.frame = frame
+//                transition.updateFrame(node: self, frame: frame, force: true, completion: { _ in
+//                    self.isAnimating = false
+//                })
+            } else {
+                self.isAnimating = true
+                self.frame = newFrameInContainer
+                let originalSupernode = self.supernode
+                supernode.containerNode.insertSubnode(self, belowSubnode: supernode.buttonsNode)
+                transition.updateFrame(node: self, frame: newFrameInContainer, force: true, completion: { _ in
+                    self.isAnimating = false
+                    self.frame = frame
+                    self.removeFromSupernode()
+                    originalSupernode?.addSubnode(self)
+                })
+            }
+        }
     }
     
     func animateOut(transition: ContainedViewLayoutTransition, completion: @escaping () -> Void) {
-        transition.updateTransformScale(node: self, scale: 0.1)
-        transition.updateAlpha(node: self, alpha: 0.0, completion: { _ in
-            completion()
-        })
+        let duration: Double
+        switch transition {
+        case let .animated(transitionDuration, _):
+            duration = transitionDuration
+        case .immediate:
+            duration = 0.0
+        }
+        
+        if let supernode = self.supernode(of: CallControllerNode.self, includingSelf: false) as? CallControllerNode {
+            self.frame = self.convert(self.bounds, to: supernode.containerNode)
+            supernode.containerNode.insertSubnode(self, belowSubnode: supernode.buttonsNode)
+            //            supernode.addSubnode(self)
+            
+            self.layer.animateAlpha(from: 1.0, to: 0.0, duration: duration * 0.5, removeOnCompletion: false)
+            self.layer.animateSpring(from: 1.0 as NSNumber, to: 0.3 as NSNumber, keyPath: "transform.scale", duration: duration, damping: 105.0, removeOnCompletion: false, completion: { _ in
+                self.removeFromSupernode()
+                completion()
+            })
+        }
+        
+//        if let transitionView = self.view.snapshotView(afterScreenUpdates: false), let supernode = self.supernode(of: CallControllerNode.self, includingSelf: false) {
+//            transitionView.frame = self.convert(self.bounds, to: supernode)
+//            supernode.layer.addSublayer(transitionView.layer)
+//
+//            self.isHidden = true
+//            transitionView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false)
+//            transitionView.layer.animateSpring(from: 1.0 as NSNumber, to: 0.3 as NSNumber, keyPath: "transform.scale", duration: 0.3, damping: 105.0, removeOnCompletion: false, completion: { _ in
+//                transitionView.removeFromSuperview()
+//                completion()
+//            })
+//
+//        }
+//        transition.updateTransformScale(node: self, scale: 0.1)
+//        transition.updateAlpha(node: self, alpha: 0.0, completion: { _ in
+//            completion()
+//        })
     }
 }

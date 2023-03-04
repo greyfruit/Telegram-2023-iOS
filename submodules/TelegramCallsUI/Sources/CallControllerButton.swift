@@ -86,6 +86,7 @@ final class CallControllerButtonItemNode: HighlightTrackingButtonNode {
         
         self.effectView = UIVisualEffectView()
         self.effectView.effect = UIBlurEffect(style: .light)
+        setBlurEffect(view: self.effectView, hasVideo: latestHasVideoState)
         self.effectView.layer.cornerRadius = self.largeButtonSize / 2.0
         self.effectView.clipsToBounds = true
         self.effectView.isUserInteractionEnabled = false
@@ -255,32 +256,33 @@ final class CallControllerButtonItemNode: HighlightTrackingButtonNode {
                 context.fillEllipse(in: ellipseRect)
                 
                 var image: UIImage?
+                let preferredSize = CGSize(width: 72.0, height: 72.0)
                 
                 switch content.image {
                 case .cameraOff, .cameraOn:
                     image = nil
                 case .camera:
-                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallCameraButton"), color: imageColor)
+                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallCameraButton"), color: imageColor, size: preferredSize)
                 case .mute:
-                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallMuteButton"), color: imageColor)
+                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallMuteButton"), color: imageColor, size: preferredSize)
                 case .flipCamera:
-                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallSwitchCameraButton"), color: imageColor)
+                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallSwitchCameraButton"), color: imageColor, size: preferredSize)
                 case .bluetooth:
-                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallBluetoothButton"), color: imageColor)
+                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallBluetoothButton"), color: imageColor, size: preferredSize)
                 case .speaker:
-                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallSpeakerButton"), color: imageColor)
+                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallSpeakerButton"), color: imageColor, size: preferredSize)
                 case .airpods:
-                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallAirpodsButton"), color: imageColor)
+                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallAirpodsButton"), color: imageColor, size: preferredSize)
                 case .airpodsPro:
-                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallAirpodsProButton"), color: imageColor)
+                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallAirpodsProButton"), color: imageColor, size: preferredSize)
                 case .airpodsMax:
-                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallAirpodsMaxButton"), color: imageColor)
+                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallAirpodsMaxButton"), color: imageColor, size: preferredSize)
                 case .headphones:
-                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallHeadphonesButton"), color: imageColor)
+                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallHeadphonesButton"), color: imageColor, size: preferredSize)
                 case .accept:
-                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallAcceptButton"), color: imageColor)
+                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallAcceptButton"), color: imageColor, size: preferredSize)
                 case .end:
-                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallDeclineButton"), color: imageColor)
+                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallDeclineButton"), color: imageColor, size: preferredSize)
                 case .cancel:
                     image = generateImage(CGSize(width: 28.0, height: 28.0), opaque: false, rotatedContext: { size, context in
                         let bounds = CGRect(origin: CGPoint(), size: size)
@@ -345,8 +347,50 @@ final class CallControllerButtonItemNode: HighlightTrackingButtonNode {
                 self.contentNode.image = contentImage
                 self.contentNode.layer.animateRotation(from: -rotation, to: 0.0, duration: 0.5, timingFunction: kCAMediaTimingFunctionSpring)
             } else if transition.isAnimated, let contentImage = contentImage, let previousContent = self.contentNode.image {
-                self.contentNode.image = contentImage
-                self.contentNode.layer.animate(from: previousContent.cgImage!, to: contentImage.cgImage!, keyPath: "contents", timingFunction: CAMediaTimingFunctionName.easeInEaseOut.rawValue, duration: 0.2)
+                self.contentNode.image = nil
+//                self.contentNode.layer.animate(from: previousContent.cgImage!, to: contentImage.cgImage!, keyPath: "contents", timingFunction: CAMediaTimingFunctionName.easeInEaseOut.rawValue, duration: 0.2)
+                
+                let contentLayer = CALayer()
+                contentLayer.contents = contentImage.cgImage
+                contentLayer.frame = self.contentNode.bounds
+                self.contentNode.layer.addSublayer(contentLayer)
+                
+                let previousContentLayer = CALayer()
+                previousContentLayer.contents = previousContent.cgImage
+                previousContentLayer.frame = self.contentNode.bounds
+                self.contentNode.layer.addSublayer(previousContentLayer)
+                
+                let previousContentLayerMask = CAShapeLayer()
+                previousContentLayerMask.frame = previousContentLayer.bounds
+                previousContentLayer.mask = previousContentLayerMask
+
+                let contentLayerMask = CAShapeLayer()
+                contentLayerMask.frame = contentLayer.bounds
+                contentLayer.mask = contentLayerMask
+                
+                let innerLayer: CAShapeLayer
+                let outerLayer: CAShapeLayer
+                if content.appearance.isFilled {
+                    innerLayer = previousContentLayerMask
+                    outerLayer = contentLayerMask
+                } else {
+                    innerLayer = contentLayerMask
+                    outerLayer = previousContentLayerMask
+                }
+                
+                innerLayer.path = UIBezierPath(roundedRect: innerLayer.bounds, cornerRadius: innerLayer.bounds.height / 2.0).cgPath
+                outerLayer.path = UIBezierPath(arcCenter: outerLayer.position, radius: outerLayer.bounds.height / 2.0, startAngle: 0.0, endAngle: .pi * 2.0, clockwise: true).cgPath
+                outerLayer.fillColor = UIColor.clear.cgColor
+                outerLayer.strokeColor = UIColor.white.cgColor
+                
+                let duration = 0.3
+                let timingFunction = CAMediaTimingFunctionName.easeOut.rawValue
+                innerLayer.animateScale(from: content.appearance.isFilled ? 1.0 : 0.0, to: content.appearance.isFilled ? 0.0 : 1.0, duration: duration, timingFunction: timingFunction, removeOnCompletion: false)
+                outerLayer.animate(from: (content.appearance.isFilled ? 0.0 : contentLayer.bounds.height) as NSNumber, to: (content.appearance.isFilled ? contentLayer.bounds.height : 0.0) as NSNumber, keyPath: "lineWidth", timingFunction: timingFunction, duration: duration, removeOnCompletion: false) { _ in
+                    self.contentNode.image = contentImage
+                    previousContentLayer.removeFromSuperlayer()
+                    contentLayer.removeFromSuperlayer()
+                }
             } else {
                 self.contentNode.image = contentImage
             }

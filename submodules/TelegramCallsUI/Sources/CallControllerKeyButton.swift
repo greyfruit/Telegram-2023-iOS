@@ -3,11 +3,17 @@ import UIKit
 import Display
 import AsyncDisplayKit
 import CallsEmoji
+import AnimatedStickerNode
+import TelegramCore
+import TelegramAnimatedStickerNode
+import StickerResources
+import SwiftSignalKit
+import AccountContext
 
-private let labelFont = Font.regular(22.0)
+private let labelFont = Font.regular(52.0)
 private let animationNodesCount = 3
 
-private class EmojiSlotNode: ASDisplayNode {
+final class EmojiSlotNode: ASDisplayNode {
     var emoji: String = "" {
         didSet {
             self.node.attributedText = NSAttributedString(string: emoji, font: labelFont, textColor: .black)
@@ -70,58 +76,134 @@ private class EmojiSlotNode: ASDisplayNode {
     }
 }
 
-final class CallControllerKeyButton: HighlightableButtonNode {
-    private let containerNode: ASDisplayNode
-    private let nodes: [EmojiSlotNode]
+final class CallControllerKeyEmojiNode: ASDisplayNode {
     
-    var key: String = "" {
-        didSet {
-            var index = 0
-            for emoji in self.key {
-                guard index < 4 else {
-                    return
-                }
-                self.nodes[index].emoji = String(emoji)
-                index += 1
+    private let animatedNode: DefaultAnimatedStickerNodeImpl
+    private let imageNode: TransformImageNode
+    private let textNode: ImmediateTextNode
+    
+    private var disposables = DisposableSet()
+    
+    override init() {
+        self.animatedNode = DefaultAnimatedStickerNodeImpl()
+        self.imageNode = TransformImageNode()
+        self.textNode = ImmediateTextNode()
+        super.init()
+    }
+    
+    override func layout() {
+        super.layout()
+        
+        self.animatedNode.frame = self.bounds
+        self.imageNode.frame = self.bounds
+        self.textNode.position = CGPoint(x: self.bounds.midX, y: self.bounds.midY)
+    }
+    
+    func animateExpand() {
+        self.animatedNode.playLoop()
+    }
+    
+    func animateCollapse() {
+        self.animatedNode.playOnce()
+    }
+    
+    func setStickerPackItem(_ stickerPackItem: StickerPackItem, account: Account) {
+        self.addSubnode(self.imageNode)
+        self.addSubnode(self.animatedNode)
+        self.layoutIfNeeded()
+        
+        let animatedStickerSource = AnimatedStickerResourceSource(account: account, resource: stickerPackItem.file.resource)
+        self.disposables.add(freeMediaFileResourceInteractiveFetched(account: account, userLocation: .other, fileReference: stickerPackFileReference(stickerPackItem.file), resource: stickerPackItem.file.resource).start())
+        
+        let imageSize = CGSize(width: 52.0 * UIScreenScale, height: 52.0 * UIScreenScale)
+        self.imageNode.setSignal(chatMessageAnimatedSticker(postbox: account.postbox, userLocation: .other, file: stickerPackItem.file, small: false, size: imageSize))
+        self.imageNode.asyncLayout()(TransformImageArguments(corners: ImageCorners(), imageSize: CGSize(width: 30.0, height: 30.0), boundingSize: CGSize(width: 30.0, height: 30.0), intrinsicInsets: UIEdgeInsets()))()
+        
+        self.animatedNode.setup(source: animatedStickerSource, width: Int(imageSize.width), height: Int(imageSize.height), playbackMode: .still(.start), mode: .direct(cachePathPrefix: nil))
+        self.animatedNode.updateLayout(size: self.animatedNode.bounds.size)
+        
+        self.animatedNode.visibility = true
+        self.animatedNode.started = { [weak imageNode] in
+            imageNode?.removeFromSupernode()
+        }
+    }
+    
+    func setString(_ string: String) {
+        self.addSubnode(self.textNode)
+        self.layoutIfNeeded()
+        
+        self.textNode.transform = CATransform3DMakeScale(0.5, 0.5, 1.0)
+        self.textNode.attributedText = NSAttributedString(string: string, font: labelFont, textColor: .black)
+        self.textNode.frame.size = self.textNode.updateLayout(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
+    }
+}
+
+final class CallControllerKeyButton: HighlightableButtonNode {
+    
+    private let containerNode: ASDisplayNode
+    private let nodes: [CallControllerKeyEmojiNode]
+    
+    init() {
+        self.containerNode = ASDisplayNode()
+        self.nodes = (0..<4).map { _ in CallControllerKeyEmojiNode() }
+        
+        super.init(pointerStyle: nil)
+        
+        self.addSubnode(self.containerNode)
+        self.nodes.forEach { self.containerNode.addSubnode($0) }
+    }
+    
+    func setup(key: String, account: Account, animatedEmojiStickers: [String: [StickerPackItem]]) {
+        self.layoutIfNeeded()
+        
+        let haveAllAnimatedEmoji = key.map(String.init).allSatisfy({ animatedEmojiStickers[$0]?.first != nil })
+        for (index, emoji) in key.map(String.init).enumerated() {
+            if haveAllAnimatedEmoji, let stickerPackItem = animatedEmojiStickers[emoji]?.first {
+                print("Emoji: should animate \(emoji)")
+                self.nodes[index].setStickerPackItem(stickerPackItem, account: account)
+            } else {
+                print("Emoji: no animation sticker for \(emoji)")
+                self.nodes[index].setString(emoji)
             }
         }
     }
     
-    init() {
-        self.containerNode = ASDisplayNode()
-        self.nodes = (0 ..< 4).map { _ in EmojiSlotNode() }
-       
-        super.init(pointerStyle: nil)
-        
-        self.addSubnode(self.containerNode)
-        self.nodes.forEach({ self.containerNode.addSubnode($0) })
-    }
-        
     func animateIn() {
         self.layoutIfNeeded()
-        self.containerNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.2)
         
-        var duration: Double = 0.75
-        for node in self.nodes {
-            node.animateIn(duration: duration)
-            duration += 0.3
+        self.containerNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.4)
+        self.nodes.reversed().enumerated().forEach { index, node in
+            node.layer.animatePosition(from: node.position.offsetBy(dx: -8.0 * CGFloat(index + 1), dy: 0.0), to: node.position, duration: 0.4)
         }
     }
     
+    func animateExpand(to rect: CGRect) {
+        self.nodes.forEach { $0.animateExpand() }
+        self.layer.animateScale(from: 1.0, to: rect.width / self.bounds.width, duration: 0.4)
+        self.layer.transform = CATransform3DMakeScale(rect.width / self.bounds.width, rect.width / self.bounds.width, 1.0)
+        self.layer.animatePosition(from: self.layer.position, to: CGPoint(x: rect.midX, y: rect.midY), duration: 0.4)
+        self.layer.position = CGPoint(x: rect.midX, y: rect.midY)
+    }
+    
+    func animateCollapse(to rect: CGRect) {
+        self.nodes.forEach { $0.animateCollapse() }
+        self.layer.animateScale(from: sqrt((self.transform.m11 * self.transform.m11) + (self.transform.m12 * self.transform.m12) + (self.transform.m13 * self.transform.m13)), to: 1.0, duration: 0.4)
+        self.layer.transform = CATransform3DMakeScale(1.0, 1.0, 1.0)
+        self.layer.animatePosition(from: self.layer.position, to: CGPoint(x: rect.midX, y: rect.midY), duration: 0.4)
+        self.layer.position = CGPoint(x: rect.midX, y: rect.midY)
+    }
+    
     override func measure(_ constrainedSize: CGSize) -> CGSize {
-        return CGSize(width: 114.0, height: 26.0)
+        return CGSize(width: 114.0 + 6.0, height: 29.0)
     }
     
     override func layout() {
         super.layout()
         
         self.containerNode.frame = self.bounds
-        var index = 0
         let nodeSize = CGSize(width: 29.0, height: self.bounds.size.height)
-        for node in self.nodes {
-            node.frame = CGRect(origin: CGPoint(x: CGFloat(index) * nodeSize.width, y: 0.0), size: nodeSize)
-            index += 1
+        self.nodes.enumerated().forEach { index, node in
+            node.frame = CGRect(origin: CGPoint(x: CGFloat(index) * nodeSize.width + CGFloat(index) * 2.0, y: 0.0), size: nodeSize)
         }
-        self.nodes.forEach({ self.containerNode.addSubnode($0) })
     }
 }
